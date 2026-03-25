@@ -27,6 +27,26 @@
       outline-offset: 2px !important;
       background: rgba(245, 158, 11, 0.08) !important;
     }
+    .__ce-popover-drag {
+      height: 24px;
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: -16px -16px 12px -16px;
+      border-radius: 10px 10px 0 0;
+      background: #181825;
+      border-bottom: 1px solid #45475a;
+      user-select: none;
+    }
+    .__ce-popover-drag:active { cursor: grabbing; }
+    .__ce-popover-drag::after {
+      content: '';
+      width: 32px;
+      height: 3px;
+      border-radius: 2px;
+      background: #585b70;
+    }
     .__ce-popover {
       position: absolute;
       z-index: 2147483647;
@@ -372,6 +392,64 @@
       .trim();
   }
 
+  function getElementContext(el) {
+    const ctx = {};
+
+    // 1. Nearest ancestor heading (section landmark)
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+      const heading = node.querySelector("h1, h2, h3, h4, h5, h6");
+      if (heading && heading !== el && !el.contains(heading)) {
+        ctx.nearestHeading = heading.textContent.trim();
+        break;
+      }
+      node = node.parentElement;
+    }
+    // Fallback: walk backwards through previous siblings / parents
+    if (!ctx.nearestHeading) {
+      let prev = el.previousElementSibling;
+      let parent = el.parentElement;
+      while (parent && parent !== document.body) {
+        while (prev) {
+          if (/^H[1-6]$/.test(prev.tagName)) {
+            ctx.nearestHeading = prev.textContent.trim();
+            break;
+          }
+          prev = prev.previousElementSibling;
+        }
+        if (ctx.nearestHeading) break;
+        prev = parent.previousElementSibling;
+        parent = parent.parentElement;
+      }
+    }
+
+    // 2. Parent element tag + classes (component-level hint)
+    const parent = el.parentElement;
+    if (parent && parent !== document.body) {
+      let parentDesc = parent.tagName.toLowerCase();
+      if (parent.className && typeof parent.className === "string") {
+        const cls = parent.className.trim().split(/\s+/)
+          .filter((c) => !c.startsWith("__ce-"))
+          .slice(0, 3)
+          .join(".");
+        if (cls) parentDesc += "." + cls;
+      }
+      ctx.parentElement = parentDesc;
+    }
+
+    // 3. Surrounding text (previous + next sibling text for disambiguation)
+    const prevSib = el.previousElementSibling;
+    const nextSib = el.nextElementSibling;
+    if (prevSib && prevSib.textContent.trim()) {
+      ctx.textBefore = prevSib.textContent.trim().slice(0, 80);
+    }
+    if (nextSib && nextSib.textContent.trim()) {
+      ctx.textAfter = nextSib.textContent.trim().slice(0, 80);
+    }
+
+    return ctx;
+  }
+
   function showToast(msg) {
     const t = document.createElement("div");
     t.className = "__ce-toast";
@@ -399,6 +477,7 @@
     pop.className = "__ce-popover";
 
     pop.innerHTML = `
+      <div class="__ce-popover-drag"></div>
       <label>Original</label>
       <div class="__ce-popover-original"></div>
       <label>New Copy</label>
@@ -433,13 +512,47 @@
 
     activePopover = pop;
 
+    // ── Drag handling ──
+    const dragHandle = pop.querySelector(".__ce-popover-drag");
+    let isDragging = false;
+    let dragStartX, dragStartY, popStartX, popStartY;
+
+    dragHandle.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      popStartX = parseInt(pop.style.left, 10);
+      popStartY = parseInt(pop.style.top, 10);
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", function onDragMove(e) {
+      if (!isDragging) return;
+      pop.style.left = (popStartX + e.clientX - dragStartX) + "px";
+      pop.style.top = (popStartY + e.clientY - dragStartY) + "px";
+    });
+
+    document.addEventListener("mouseup", function onDragEnd() {
+      isDragging = false;
+    });
+
     // Focus and select all text
     textarea.focus();
     textarea.select();
 
+    // ── Live preview: update DOM as you type ──
+    textarea.addEventListener("input", () => {
+      const val = textarea.value.trim();
+      if (val) {
+        el.textContent = val;
+      }
+    });
+
     // Handlers
     pop.querySelector(".__ce-btn-cancel").onclick = (e) => {
       e.stopPropagation();
+      // Revert the live preview back to original
+      el.textContent = originalText;
       closePopover();
     };
 
@@ -447,32 +560,37 @@
       e.stopPropagation();
       const newText = textarea.value.trim();
       if (newText && newText !== originalText) {
-        // Apply the change to the DOM
+        // DOM is already updated via live preview, just ensure final value
         el.textContent = newText;
         el.classList.add("__ce-edited");
 
-        // Record it
+        // Record it with surrounding context
         changes.push({
           index: changes.length + 1,
           selector: getCSSSelector(el),
           original: originalText,
           updated: newText,
           tagName: el.tagName.toLowerCase(),
+          context: getElementContext(el),
           timestamp: new Date().toISOString(),
         });
 
         renderPanel();
         showToast(`Change #${changes.length} saved`);
+      } else {
+        // No change or empty — revert
+        el.textContent = originalText;
       }
       closePopover();
     };
 
-    // Save on Cmd/Ctrl+Enter
+    // Save on Cmd/Ctrl+Enter, revert on Escape
     textarea.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         pop.querySelector(".__ce-btn-save").click();
       }
       if (e.key === "Escape") {
+        el.textContent = originalText;
         closePopover();
       }
     });
@@ -630,6 +748,24 @@
 
     changes.forEach((c) => {
       md += `### ${c.index}. \`<${c.tagName}>\` — ${c.selector}\n\n`;
+
+      // Location context to help the agent find the right element
+      if (c.context) {
+        md += `**Location context:**\n`;
+        if (c.context.nearestHeading) {
+          md += `- Under heading: "${c.context.nearestHeading}"\n`;
+        }
+        if (c.context.parentElement) {
+          md += `- Parent: \`${c.context.parentElement}\`\n`;
+        }
+        if (c.context.textBefore) {
+          md += `- Text before: "${c.context.textBefore}"\n`;
+        }
+        if (c.context.textAfter) {
+          md += `- Text after: "${c.context.textAfter}"\n`;
+        }
+        md += `\n`;
+      }
 
       // Use fenced blocks so multi-line strings stay intact and agents
       // can copy them without blockquote artifacts
