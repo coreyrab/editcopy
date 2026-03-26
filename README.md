@@ -1,13 +1,33 @@
+<h1 align="center">TextFix</h1>
+
 <p align="center">
-  <img src="banner.svg" alt="TextFix — Edit copy visually. Export for your coding agent." width="720" />
+  <strong>Edit copy visually. Export for your coding agent.</strong>
 </p>
 
 <p align="center">
-  <strong>Click any text on a live page, edit it inline, and get structured output<br>you can paste straight into your AI coding agent.</strong>
+  Click any text on a live page, edit it inline, and get structured output<br>you can paste straight into your AI coding agent.
 </p>
 
 <p align="center">
   Works with Claude Code &middot; Cursor &middot; Windsurf &middot; Copilot &middot; Aider &middot; Cline
+</p>
+
+<br>
+
+<p align="center">
+
+```diff
+  # Copy Edit Requests — 2 changes
+
+- Get Strated
++ Get Started
+
+- / moth
++ / month
+
+  Location: Under heading "Pricing Plans" → div.pricing-card
+```
+
 </p>
 
 ---
