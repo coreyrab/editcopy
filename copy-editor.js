@@ -101,11 +101,78 @@
     .__ce-popover textarea:focus {
       border-color: #3b82f6;
     }
+    .__ce-popover-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #45475a;
+    }
+    .__ce-popover-tab {
+      flex: 1;
+      padding: 6px 0;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      background: #313244;
+      color: #6c7086;
+      border: none;
+      font-family: inherit;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .__ce-popover-tab:hover { color: #a6adc8; }
+    .__ce-popover-tab.__ce-tab-active {
+      background: #45475a;
+      color: #cdd6f4;
+    }
+    .__ce-popover-prompt-hint {
+      font-size: 11px;
+      color: #6c7086;
+      font-style: italic;
+      margin-bottom: 6px;
+    }
     .__ce-popover-buttons {
       display: flex;
       gap: 8px;
       margin-top: 12px;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .__ce-popover-buttons-right {
+      display: flex;
+      gap: 8px;
+    }
+    .__ce-btn-undo {
+      background: none;
+      border: 1px solid #45475a;
+      color: #a6adc8;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      padding: 0 !important;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      font-family: inherit;
+      overflow: visible;
+    }
+    .__ce-btn-undo svg {
+      flex-shrink: 0;
+    }
+    .__ce-btn-undo:hover:not(:disabled) {
+      background: #313244;
+      border-color: #585b70;
+    }
+    .__ce-btn-undo:disabled {
+      opacity: 0.25;
+      cursor: default;
     }
     .__ce-popover-buttons button {
       padding: 6px 14px;
@@ -476,22 +543,61 @@
     const pop = document.createElement("div");
     pop.className = "__ce-popover";
 
+    let mode = "edit"; // "edit" or "prompt"
+
     pop.innerHTML = `
       <div class="__ce-popover-drag"></div>
+      <div class="__ce-popover-tabs">
+        <button class="__ce-popover-tab __ce-tab-active" data-mode="edit" type="button">Edit</button>
+        <button class="__ce-popover-tab" data-mode="prompt" type="button">Prompt</button>
+      </div>
       <label>Original</label>
       <div class="__ce-popover-original"></div>
-      <label>New Copy</label>
+      <div class="__ce-popover-prompt-hint" style="display:none">Describe how the agent should rewrite this text</div>
+      <label class="__ce-textarea-label">New Copy</label>
       <textarea class="__ce-popover-textarea"></textarea>
       <div class="__ce-popover-buttons">
-        <button class="__ce-btn-cancel" type="button">Cancel</button>
-        <button class="__ce-btn-save" type="button">Save Change</button>
+        <button class="__ce-btn-undo" type="button" title="Undo — show original" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
+        <div class="__ce-popover-buttons-right">
+          <button class="__ce-btn-cancel" type="button">Cancel</button>
+          <button class="__ce-btn-save" type="button">Save Change</button>
+        </div>
       </div>
     `;
 
     // Set text safely (not innerHTML)
     pop.querySelector(".__ce-popover-original").textContent = originalText;
     const textarea = pop.querySelector("textarea");
+    const textareaLabel = pop.querySelector(".__ce-textarea-label");
+    const promptHint = pop.querySelector(".__ce-popover-prompt-hint");
+    const undoBtn = pop.querySelector(".__ce-btn-undo");
     textarea.value = originalText;
+
+    // ── Tab switching ──
+    const tabs = pop.querySelectorAll(".__ce-popover-tab");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", (e) => {
+        e.stopPropagation();
+        mode = tab.dataset.mode;
+        tabs.forEach((t) => t.classList.remove("__ce-tab-active"));
+        tab.classList.add("__ce-tab-active");
+
+        if (mode === "prompt") {
+          textareaLabel.textContent = "Prompt";
+          promptHint.style.display = "block";
+          textarea.value = "";
+          textarea.placeholder = 'e.g. "Make this more conversational" or "Shorten to under 10 words"';
+          // Revert DOM to original while in prompt mode
+          el.textContent = originalText;
+        } else {
+          textareaLabel.textContent = "New Copy";
+          promptHint.style.display = "none";
+          textarea.value = originalText;
+          textarea.placeholder = "";
+        }
+        textarea.focus();
+      });
+    });
 
     // Position near the element
     document.body.appendChild(pop);
@@ -540,11 +646,39 @@
     textarea.focus();
     textarea.select();
 
-    // ── Live preview: update DOM as you type ──
+    // ── Live preview: update DOM as you type (edit mode only) ──
     textarea.addEventListener("input", () => {
+      if (mode !== "edit") return;
       const val = textarea.value.trim();
       if (val) {
         el.textContent = val;
+      }
+      // Enable undo when text differs from original
+      undoBtn.disabled = (textarea.value.trim() === originalText);
+    });
+
+    // ── Undo/Redo toggle ──
+    let showingOriginal = false;
+    let savedEditText = "";
+
+    undoBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (mode !== "edit") return;
+      if (!showingOriginal) {
+        // Undo: save current text, show original
+        savedEditText = textarea.value;
+        el.textContent = originalText;
+        textarea.value = originalText;
+        undoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>';
+        undoBtn.title = "Redo — show your edit";
+        showingOriginal = true;
+      } else {
+        // Redo: restore the edited text
+        textarea.value = savedEditText;
+        el.textContent = savedEditText.trim() || originalText;
+        undoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+        undoBtn.title = "Undo — show original";
+        showingOriginal = false;
       }
     });
 
@@ -558,28 +692,46 @@
 
     pop.querySelector(".__ce-btn-save").onclick = (e) => {
       e.stopPropagation();
-      const newText = textarea.value.trim();
-      if (newText && newText !== originalText) {
-        // DOM is already updated via live preview, just ensure final value
-        el.textContent = newText;
-        el.classList.add("__ce-edited");
+      const textValue = textarea.value.trim();
 
-        // Record it with surrounding context
+      if (mode === "prompt") {
+        // Prompt mode: record the prompt, don't change DOM
+        if (!textValue) {
+          closePopover();
+          return;
+        }
+        el.classList.add("__ce-edited");
         changes.push({
           index: changes.length + 1,
           selector: getCSSSelector(el),
           original: originalText,
-          updated: newText,
+          prompt: textValue,
           tagName: el.tagName.toLowerCase(),
           context: getElementContext(el),
           timestamp: new Date().toISOString(),
         });
-
         renderPanel();
-        showToast(`Change #${changes.length} saved`);
+        showToast(`Prompt #${changes.length} saved`);
       } else {
-        // No change or empty — revert
-        el.textContent = originalText;
+        // Edit mode: apply the text change
+        if (textValue && textValue !== originalText) {
+          el.textContent = textValue;
+          el.classList.add("__ce-edited");
+          changes.push({
+            index: changes.length + 1,
+            selector: getCSSSelector(el),
+            original: originalText,
+            updated: textValue,
+            tagName: el.tagName.toLowerCase(),
+            context: getElementContext(el),
+            timestamp: new Date().toISOString(),
+          });
+          renderPanel();
+          showToast(`Change #${changes.length} saved`);
+        } else {
+          // No change or empty — revert
+          el.textContent = originalText;
+        }
       }
       closePopover();
     };
@@ -708,7 +860,10 @@
         <div class="__ce-change-selector">${escapeHtml(c.selector)}</div>
         <div class="__ce-change-diff">
           <div class="__ce-change-old">${escapeHtml(c.original)}</div>
-          <div class="__ce-change-new">${escapeHtml(c.updated)}</div>
+          ${c.prompt
+            ? `<div class="__ce-change-new" style="color:#89b4fa;font-style:italic">[prompt] ${escapeHtml(c.prompt)}</div>`
+            : `<div class="__ce-change-new">${escapeHtml(c.updated)}</div>`
+          }
         </div>
       </div>
     `
@@ -742,12 +897,13 @@
     md += `**URL:** ${url}\n`;
     md += `**Total edits:** ${changes.length}\n\n`;
 
-    // ── Quick reference: search → replace table ──
-    md += `## Find and Replace\n\n`;
-    md += `For each entry below, search the codebase for the **original** string and replace it with the **updated** string.\n\n`;
+    md += `## Changes\n\n`;
+    md += `For each entry below, find the **current text** in the codebase and apply the requested change. Changes marked "ACTION: REPLACE" have an exact replacement string. Changes marked "ACTION: REWRITE" need you to generate new copy based on the instruction.\n\n`;
 
     changes.forEach((c) => {
+      const action = c.prompt ? "REWRITE" : "REPLACE";
       md += `### ${c.index}. \`<${c.tagName}>\` — ${c.selector}\n\n`;
+      md += `**ACTION:** ${action}\n\n`;
 
       // Location context to help the agent find the right element
       if (c.context) {
@@ -767,21 +923,27 @@
         md += `\n`;
       }
 
-      // Use fenced blocks so multi-line strings stay intact and agents
-      // can copy them without blockquote artifacts
-      md += `**Search for:**\n`;
+      md += `**Current text:**\n`;
       md += `\`\`\`\n${c.original}\n\`\`\`\n\n`;
-      md += `**Replace with:**\n`;
-      md += `\`\`\`\n${c.updated}\n\`\`\`\n\n`;
+
+      if (c.prompt) {
+        md += `**Rewrite this text according to the following instruction:**\n`;
+        md += `> ${c.prompt}\n\n`;
+      } else {
+        md += `**Replace with:**\n`;
+        md += `\`\`\`\n${c.updated}\n\`\`\`\n\n`;
+      }
     });
 
-    // ── Compact summary agents can parse programmatically ──
+    // ── Compact summary ──
     md += `## Summary (compact)\n\n`;
     md += `\`\`\`\n`;
     changes.forEach((c) => {
-      // One-line per change: original → updated
-      // Truncate display if very long, but keep full string
-      md += `${JSON.stringify(c.original)} → ${JSON.stringify(c.updated)}\n`;
+      if (c.prompt) {
+        md += `${JSON.stringify(c.original)} → [prompt] ${c.prompt}\n`;
+      } else {
+        md += `${JSON.stringify(c.original)} → ${JSON.stringify(c.updated)}\n`;
+      }
     });
     md += `\`\`\`\n`;
 
