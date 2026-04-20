@@ -182,6 +182,24 @@
         const encoded = 'javascript:' + encodeURIComponent(src);
         document.getElementById('bookmarklet').href = encoded;
       });
+
+    // Track EditCopy interactions on the landing page
+    document.addEventListener('click', (e) => {
+      const el = e.target;
+      // Track when someone opens the editor popover on a text element
+      if (el.closest('.__ce-popover')) return;
+      if (el.classList?.contains('__ce-highlight')) {
+        window.op?.('track', 'demo_click_element', { tag: el.tagName });
+      }
+      // Track save
+      if (el.classList?.contains('__ce-btn-save')) {
+        window.op?.('track', 'demo_save_change');
+      }
+      // Track copy markdown
+      if (el.classList?.contains('__ce-btn-copy')) {
+        window.op?.('track', 'demo_copy_markdown');
+      }
+    }, true);
   </script>
 
 </body>
