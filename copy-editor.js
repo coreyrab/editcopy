@@ -430,8 +430,8 @@
 
   function isTextElement(el) {
     if (!el || !el.tagName) return false;
-    // Skip our own UI
-    if (el.closest(".__ce-panel, .__ce-popover, .__ce-toast")) return false;
+    // Skip our own UI and elements marked as ignored
+    if (el.closest(".__ce-panel, .__ce-popover, .__ce-toast, [data-ce-ignore]")) return false;
     // Must have some direct text content
     const hasDirectText = Array.from(el.childNodes).some(
       (n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0
